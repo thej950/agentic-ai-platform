@@ -1,9 +1,0 @@
-[
-  {
-    "chunk_id": "a285d198-94fc-4d2b-b1f9-d9a1770025d0",
-    "document_id": "41c056c0-fbc0-4d98-a18c-60996f46e020",
-    "chunk_number": 1,
-    "text": "Phase 4 chunk verification text. This is enough text to test splitting behavior and chunk metadata generation",
-    "character_count": 109
-  }
-]

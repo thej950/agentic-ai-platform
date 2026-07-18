@@ -1,1 +1,0 @@
-Phase 4 chunk verification text. This is enough text to test splitting behavior and chunk metadata generation
