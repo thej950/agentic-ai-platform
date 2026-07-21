@@ -62,12 +62,15 @@ agentic-ai-platform/
 - `POST /embed/{document_id}` endpoint for local embedding generation with FAISS
 - `POST /retrieve` endpoint for local FAISS-based document chunk retrieval
 - `POST /ask` endpoint for question answering using the retrieval pipeline and a mock LLM abstraction
+- `POST /agent-chat` endpoint for confidence-routed agent orchestration over the shared RAG pipeline
 - Configurable Top-K retrieval requests
 - APIRouter-based API structure
 - Local vector-storage persistence in the `vector_store/` directory
 - Reusable embedding service using `SentenceTransformer("all-MiniLM-L6-v2")`
 - Reusable retrieval service using the same local `SentenceTransformer("all-MiniLM-L6-v2")`
 - Reusable prompt builder and mock LLM abstraction for deterministic, context-grounded answers
+- Modular HR, IT, and Finance agents that reuse `RetrievalService`, `PromptBuilder`, and `LLMService`
+- `AgentOrchestrator` service for deterministic agent registration, confidence routing, and default fallback behavior
 - Local FAISS index saved at `vector_store/index.faiss`
 - Chunk metadata saved at `vector_store/metadata.json`
 - Logging and `HTTPException` handling for retrieval and ask failures
@@ -187,6 +190,102 @@ The response includes:
 - `question`
 - `answer`
 - `sources[]` with `document_id`, `chunk_number`, and `similarity_score`
+
+## Phase 10 Intelligent Intent Classification
+
+Phase 10 upgrades local agent orchestration from keyword-first routing to confidence-based intent classification. It does not change the completed upload, processing, chunking, embedding, retrieval, ask, Bedrock-ready LLM, or agent execution phases.
+
+The agent architecture is intentionally simple and production-friendly:
+
+- `app/agents/base_agent.py` defines `BaseAgent`, `AgentClassification`, the shared execution contract, and the common RAG flow.
+- `app/agents/hr_agent.py` classifies HR topics such as leave, attendance, holidays, salary, benefits, employee policy, and recruitment.
+- `app/agents/it_agent.py` classifies IT topics such as passwords, VPN, login, email, software, network, laptop, and systems.
+- `app/agents/finance_agent.py` classifies finance topics such as invoices, expenses, payments, tax, budget, purchases, reimbursement, and finance.
+- `app/agents/default_agent.py` handles requests when no specialist reaches the confidence threshold.
+- `app/services/orchestrator.py` registers specialist agents, asks every agent to classify the question, sorts by confidence, and chooses the highest-confidence route.
+- `app/api/agent_chat.py` exposes the `POST /agent-chat` API.
+
+Each agent reuses the existing services:
+
+- `RetrievalService` for FAISS-backed chunk retrieval
+- `PromptBuilder` for context-grounded prompt creation
+- `LLMService` for mock or Bedrock-backed answer generation
+
+No retrieval, prompt, or LLM logic is duplicated inside individual agents.
+
+### Classification Flow
+
+The orchestrator follows this flow for every `POST /agent-chat` request:
+
+1. Receive the question.
+2. Ask every specialist agent to run `classify(question)`.
+3. Collect `can_handle`, `confidence`, and `reason` from each agent.
+4. Log each agent confidence.
+5. Sort classifications by confidence in descending order.
+6. Select the highest-confidence specialist when confidence is `0.50` or higher.
+7. Use `DefaultAgent` when the highest specialist confidence is below `0.50`.
+8. Execute the selected agent through the shared RAG pipeline.
+
+### Agent Registration
+
+Agents are registered in `AgentOrchestrator._register_agents()` in deterministic order:
+
+1. `HRAgent`
+2. `ITAgent`
+3. `FinanceAgent`
+
+The highest-confidence agent handles the request. `DefaultAgent` is created separately as the fallback and is used only when no specialist meets the confidence threshold.
+
+### Agent Chat
+
+Use the agent chat endpoint to run a routed agent flow:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/agent-chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "How many annual leave days are available?"
+  }'
+```
+
+The response includes:
+
+- `selected_agent`
+- `confidence`
+- `classification_reason`
+- `question`
+- `answer`
+- `sources[]` with `document_id`, `chunk_number`, and `similarity_score`
+
+Example response:
+
+```json
+{
+  "selected_agent": "HRAgent",
+  "confidence": 0.95,
+  "classification_reason": "Detected HR policy intent.",
+  "question": "How many annual leave days are available?",
+  "answer": "Based on the uploaded documents:\n\nEmployees receive 18 annual leave days...",
+  "sources": [
+    {
+      "document_id": "example-document-id",
+      "chunk_number": 5,
+      "similarity_score": 0.54
+    }
+  ]
+}
+```
+
+### Adding a New Agent
+
+To add a new enterprise agent:
+
+1. Create a new file in `app/agents/`.
+2. Subclass `BaseAgent`.
+3. Implement `classify(question: str) -> AgentClassification`.
+4. Register the agent in `AgentOrchestrator._register_agents()`.
+
+The new agent should continue to use the inherited `handle(question)` method unless it has a strong product reason to customize behavior.
 
 ## Phase 8 Bedrock Integration
 

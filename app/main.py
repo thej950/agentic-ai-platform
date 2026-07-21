@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.api.agent_chat import router as agent_chat_router
 from app.api.ask import router as ask_router
 from app.api.chunk import router as chunk_router
 from app.api.embed import router as embed_router
@@ -45,6 +46,7 @@ app.include_router(chunk_router)
 app.include_router(embed_router)
 app.include_router(retrieve_router)
 app.include_router(ask_router)
+app.include_router(agent_chat_router)
 
 
 @app.exception_handler(RequestValidationError)
