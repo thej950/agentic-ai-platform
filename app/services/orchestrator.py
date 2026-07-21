@@ -10,6 +10,7 @@ from app.agents.finance_agent import FinanceAgent
 from app.agents.hr_agent import HRAgent
 from app.agents.it_agent import ITAgent
 from app.core.logging import setup_logging
+from app.services.collaboration_service import AgentCollaborationResponse, CollaborationService
 from app.services.llm_service import LLMService
 from app.services.prompt_builder import PromptBuilder
 from app.services.retrieval_service import RetrievalService
@@ -21,9 +22,7 @@ logger = setup_logging()
 class OrchestratorResult:
     """Result returned after agent selection and execution."""
 
-    selected_agent: str
-    confidence: float
-    classification_reason: str
+    selected_agents: list[str]
     question: str
     answer: str
     sources: list[AgentSource]
@@ -40,11 +39,17 @@ class AgentOrchestrator:
         prompt_builder: PromptBuilder,
         llm_service: LLMService,
         top_k: int = 5,
+        multi_agent_enabled: bool = True,
+        multi_agent_threshold: float = 0.70,
+        collaboration_service: CollaborationService | None = None,
     ) -> None:
         self.retrieval_service = retrieval_service
         self.prompt_builder = prompt_builder
         self.llm_service = llm_service
         self.top_k = top_k
+        self.multi_agent_enabled = multi_agent_enabled
+        self.multi_agent_threshold = multi_agent_threshold
+        self.collaboration_service = collaboration_service or CollaborationService()
         self.agents = self._register_agents()
         self.default_agent = DefaultAgent(
             retrieval_service=self.retrieval_service,
@@ -114,13 +119,24 @@ class AgentOrchestrator:
 
         return selected_agent, classification
 
-    def handle(self, question: str) -> OrchestratorResult:
-        if not question or not question.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Question cannot be empty.",
-            )
+    def select_collaborating_agents(
+        self,
+        question: str,
+        ranked_classifications: list[tuple[BaseAgent, AgentClassification]],
+    ) -> list[tuple[BaseAgent, AgentClassification]]:
+        selected_agents = [
+            (agent, classification)
+            for agent, classification in ranked_classifications
+            if classification.confidence >= self.multi_agent_threshold
+        ]
 
+        if selected_agents:
+            return selected_agents
+
+        default_classification = self.default_agent.classify(question)
+        return [(self.default_agent, default_classification)]
+
+    def _handle_single_agent(self, question: str) -> OrchestratorResult:
         selected_agent, classification = self.select_agent(question)
         logger.info(
             "Selected agent: agent=%s confidence=%.2f reason=%s question=%s",
@@ -129,13 +145,71 @@ class AgentOrchestrator:
             classification.reason,
             question,
         )
+        logger.info("Agent execution started: agent=%s question=%s", selected_agent.name, question)
 
         agent_result = selected_agent.handle(question=question)
         return OrchestratorResult(
-            selected_agent=selected_agent.name,
-            confidence=classification.confidence,
-            classification_reason=classification.reason,
+            selected_agents=[selected_agent.name],
             question=question,
             answer=agent_result.answer,
             sources=agent_result.sources,
         )
+
+    def _handle_multi_agent(self, question: str) -> OrchestratorResult:
+        ranked_classifications = self.classify_agents(question)
+        selected_agents = self.select_collaborating_agents(
+            question=question,
+            ranked_classifications=ranked_classifications,
+        )
+        logger.info(
+            "Selected agents: agents=%s threshold=%.2f question=%s",
+            [agent.name for agent, _classification in selected_agents],
+            self.multi_agent_threshold,
+            question,
+        )
+
+        successful_responses: list[AgentCollaborationResponse] = []
+        for agent, classification in selected_agents:
+            try:
+                logger.info(
+                    "Agent execution started: agent=%s confidence=%.2f reason=%s question=%s",
+                    agent.name,
+                    classification.confidence,
+                    classification.reason,
+                    question,
+                )
+                agent_result = agent.handle(question=question)
+                successful_responses.append(
+                    AgentCollaborationResponse(
+                        agent_name=agent.name,
+                        result=agent_result,
+                    )
+                )
+            except Exception:
+                logger.exception("Agent execution failed; continuing: agent=%s question=%s", agent.name, question)
+
+        if not successful_responses:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="All selected agents failed to complete the request.",
+            )
+
+        collaboration_result = self.collaboration_service.merge(successful_responses)
+        return OrchestratorResult(
+            selected_agents=[response.agent_name for response in successful_responses],
+            question=question,
+            answer=collaboration_result.answer,
+            sources=collaboration_result.sources,
+        )
+
+    def handle(self, question: str) -> OrchestratorResult:
+        if not question or not question.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Question cannot be empty.",
+            )
+
+        if self.multi_agent_enabled:
+            return self._handle_multi_agent(question=question)
+
+        return self._handle_single_agent(question=question)

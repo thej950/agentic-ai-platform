@@ -63,6 +63,7 @@ agentic-ai-platform/
 - `POST /retrieve` endpoint for local FAISS-based document chunk retrieval
 - `POST /ask` endpoint for question answering using the retrieval pipeline and a mock LLM abstraction
 - `POST /agent-chat` endpoint for confidence-routed agent orchestration over the shared RAG pipeline
+- Optional multi-agent collaboration for requests that match more than one specialist agent
 - Configurable Top-K retrieval requests
 - APIRouter-based API structure
 - Local vector-storage persistence in the `vector_store/` directory
@@ -71,6 +72,7 @@ agentic-ai-platform/
 - Reusable prompt builder and mock LLM abstraction for deterministic, context-grounded answers
 - Modular HR, IT, and Finance agents that reuse `RetrievalService`, `PromptBuilder`, and `LLMService`
 - `AgentOrchestrator` service for deterministic agent registration, confidence routing, and default fallback behavior
+- `CollaborationService` for merging multi-agent responses and deduplicating source chunks
 - Local FAISS index saved at `vector_store/index.faiss`
 - Chunk metadata saved at `vector_store/metadata.json`
 - Logging and `HTTPException` handling for retrieval and ask failures
@@ -250,9 +252,7 @@ curl -X POST "http://127.0.0.1:8000/agent-chat" \
 
 The response includes:
 
-- `selected_agent`
-- `confidence`
-- `classification_reason`
+- `selected_agents`
 - `question`
 - `answer`
 - `sources[]` with `document_id`, `chunk_number`, and `similarity_score`
@@ -261,9 +261,9 @@ Example response:
 
 ```json
 {
-  "selected_agent": "HRAgent",
-  "confidence": 0.95,
-  "classification_reason": "Detected HR policy intent.",
+  "selected_agents": [
+    "HRAgent"
+  ],
   "question": "How many annual leave days are available?",
   "answer": "Based on the uploaded documents:\n\nEmployees receive 18 annual leave days...",
   "sources": [
@@ -286,6 +286,86 @@ To add a new enterprise agent:
 4. Register the agent in `AgentOrchestrator._register_agents()`.
 
 The new agent should continue to use the inherited `handle(question)` method unless it has a strong product reason to customize behavior.
+
+## Phase 11 Multi-Agent Collaboration
+
+Phase 11 allows the orchestrator to execute multiple specialist agents for a single request when more than one agent has enough classification confidence.
+
+### Multi-Agent Workflow
+
+When `MULTI_AGENT_ENABLED=true`, the orchestrator follows this flow:
+
+1. Receive the question.
+2. Ask every specialist agent to run `classify(question)`.
+3. Sort agents by confidence in descending order.
+4. Select every specialist agent whose confidence is greater than or equal to `MULTI_AGENT_THRESHOLD`.
+5. If no specialist reaches the threshold, use `DefaultAgent`.
+6. Execute each selected agent with the shared `RetrievalService`, `PromptBuilder`, and `LLMService`.
+7. Continue with remaining agents if one selected agent fails.
+8. Merge successful agent responses through `CollaborationService`.
+9. Return the merged answer and deduplicated sources.
+
+When `MULTI_AGENT_ENABLED=false`, the orchestrator keeps the Phase 10 single-agent behavior and returns one selected agent in the `selected_agents` list.
+
+### Collaboration Strategy
+
+`CollaborationService` merges responses with a deterministic strategy:
+
+- Preserves selected agent response order.
+- Adds a Markdown section heading for each agent, such as `## HRAgent`.
+- Removes duplicate source chunks using `document_id` and `chunk_number`.
+- Keeps source order based on the first agent response where each source appears.
+
+### Configuration
+
+Add these values to `.env`:
+
+```env
+MULTI_AGENT_ENABLED=true
+MULTI_AGENT_THRESHOLD=0.70
+```
+
+The threshold can be tuned per environment:
+
+- Use a higher threshold for stricter specialist routing.
+- Use a lower threshold for broader collaboration.
+- Disable multi-agent mode when only the single highest-confidence agent should answer.
+
+### Multi-Agent Chat Example
+
+```bash
+curl -X POST "http://127.0.0.1:8000/agent-chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is the leave policy and how do I request a laptop?"
+  }'
+```
+
+Example response:
+
+```json
+{
+  "selected_agents": [
+    "HRAgent",
+    "ITAgent"
+  ],
+  "question": "What is the leave policy and how do I request a laptop?",
+  "answer": "## HRAgent\n\nBased on the uploaded documents:\n\nEmployees receive 18 annual leave days.\n\n## ITAgent\n\nBased on the uploaded documents:\n\nLaptop requests must be submitted through the IT portal.",
+  "sources": []
+}
+```
+
+### Adding New Agents To Collaboration
+
+New agents participate in multi-agent collaboration automatically when they are registered in `AgentOrchestrator._register_agents()` and implement `classify(question)`.
+
+To add a new collaborating agent:
+
+1. Create the new agent in `app/agents/`.
+2. Subclass `BaseAgent`.
+3. Implement `classify(question: str) -> AgentClassification`.
+4. Register the agent in `AgentOrchestrator._register_agents()`.
+5. Tune the agent confidence scores so collaboration occurs only for relevant multi-intent questions.
 
 ## Phase 8 Bedrock Integration
 

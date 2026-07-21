@@ -23,6 +23,8 @@ agent_orchestrator = AgentOrchestrator(
     retrieval_service=retrieval_service,
     prompt_builder=prompt_builder,
     llm_service=llm_service,
+    multi_agent_enabled=settings.multi_agent_enabled,
+    multi_agent_threshold=settings.multi_agent_threshold,
 )
 
 
@@ -46,9 +48,7 @@ async def agent_chat(
     try:
         result = orchestrator.handle(question=request.question)
         response = AgentChatResponse(
-            selected_agent=result.selected_agent,
-            confidence=result.confidence,
-            classification_reason=result.classification_reason,
+            selected_agents=result.selected_agents,
             question=result.question,
             answer=result.answer,
             sources=[
@@ -61,12 +61,11 @@ async def agent_chat(
             ],
         )
         logger.info(
-            "Response returned: endpoint=/agent-chat selected_agent=%s confidence=%.2f sources=%s",
-            response.selected_agent,
-            response.confidence,
+            "Response returned: endpoint=/agent-chat selected_agents=%s sources=%s",
+            response.selected_agents,
             len(response.sources),
         )
-        logger.info("Agent chat completed: question=%s selected_agent=%s", request.question, response.selected_agent)
+        logger.info("Agent chat completed: question=%s selected_agents=%s", request.question, response.selected_agents)
         return response
     except HTTPException:
         raise
