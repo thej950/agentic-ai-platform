@@ -15,8 +15,8 @@ class MockLLMService(LLMService):
     """A deterministic mock LLM implementation that answers only from the provided context prompt."""
 
     def _extract_context(self, prompt: str) -> str:
-        context_marker = "Context:\n"
-        question_marker = "\n\nQuestion:\n"
+        context_marker = "Current Context:\n" if "Current Context:\n" in prompt else "Context:\n"
+        question_marker = "\n\nCurrent Question:\n" if "\n\nCurrent Question:\n" in prompt else "\n\nQuestion:\n"
         answer_marker = "\n\nAnswer:"
 
         if context_marker not in prompt:

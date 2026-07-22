@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     bedrock_model_id: str = Field(default="anthropic.claude-3-haiku-20240307-v1:0")
     multi_agent_enabled: bool = Field(default=True)
     multi_agent_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    session_timeout_minutes: int = Field(default=30, ge=1)
 
 
 @lru_cache(maxsize=1)

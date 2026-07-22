@@ -11,6 +11,7 @@ from app.agents.hr_agent import HRAgent
 from app.agents.it_agent import ITAgent
 from app.core.logging import setup_logging
 from app.services.collaboration_service import AgentCollaborationResponse, CollaborationService
+from app.services.conversation_memory import ConversationMessage
 from app.services.llm_service import LLMService
 from app.services.prompt_builder import PromptBuilder
 from app.services.retrieval_service import RetrievalService
@@ -136,7 +137,11 @@ class AgentOrchestrator:
         default_classification = self.default_agent.classify(question)
         return [(self.default_agent, default_classification)]
 
-    def _handle_single_agent(self, question: str) -> OrchestratorResult:
+    def _handle_single_agent(
+        self,
+        question: str,
+        conversation_history: list[ConversationMessage] | None = None,
+    ) -> OrchestratorResult:
         selected_agent, classification = self.select_agent(question)
         logger.info(
             "Selected agent: agent=%s confidence=%.2f reason=%s question=%s",
@@ -147,7 +152,10 @@ class AgentOrchestrator:
         )
         logger.info("Agent execution started: agent=%s question=%s", selected_agent.name, question)
 
-        agent_result = selected_agent.handle(question=question)
+        agent_result = selected_agent.handle(
+            question=question,
+            conversation_history=conversation_history,
+        )
         return OrchestratorResult(
             selected_agents=[selected_agent.name],
             question=question,
@@ -155,7 +163,11 @@ class AgentOrchestrator:
             sources=agent_result.sources,
         )
 
-    def _handle_multi_agent(self, question: str) -> OrchestratorResult:
+    def _handle_multi_agent(
+        self,
+        question: str,
+        conversation_history: list[ConversationMessage] | None = None,
+    ) -> OrchestratorResult:
         ranked_classifications = self.classify_agents(question)
         selected_agents = self.select_collaborating_agents(
             question=question,
@@ -178,7 +190,10 @@ class AgentOrchestrator:
                     classification.reason,
                     question,
                 )
-                agent_result = agent.handle(question=question)
+                agent_result = agent.handle(
+                    question=question,
+                    conversation_history=conversation_history,
+                )
                 successful_responses.append(
                     AgentCollaborationResponse(
                         agent_name=agent.name,
@@ -202,7 +217,11 @@ class AgentOrchestrator:
             sources=collaboration_result.sources,
         )
 
-    def handle(self, question: str) -> OrchestratorResult:
+    def handle(
+        self,
+        question: str,
+        conversation_history: list[ConversationMessage] | None = None,
+    ) -> OrchestratorResult:
         if not question or not question.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -210,6 +229,12 @@ class AgentOrchestrator:
             )
 
         if self.multi_agent_enabled:
-            return self._handle_multi_agent(question=question)
+            return self._handle_multi_agent(
+                question=question,
+                conversation_history=conversation_history,
+            )
 
-        return self._handle_single_agent(question=question)
+        return self._handle_single_agent(
+            question=question,
+            conversation_history=conversation_history,
+        )

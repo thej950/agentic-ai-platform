@@ -7,6 +7,7 @@ from app.core.logging import setup_logging
 from app.services.llm_service import LLMService
 from app.services.prompt_builder import PromptBuilder
 from app.services.retrieval_service import RetrievalService
+from app.services.conversation_memory import ConversationMessage
 
 logger = setup_logging()
 
@@ -60,7 +61,7 @@ class BaseAgent(ABC):
     def classify(self, question: str) -> AgentClassification:
         """Return the agent's confidence and rationale for handling the incoming question."""
 
-    def handle(self, question: str) -> AgentResult:
+    def handle(self, question: str, conversation_history: list[ConversationMessage] | None = None) -> AgentResult:
         """Execute the shared retrieval, prompt building, and LLM flow for this agent."""
 
         retrieval_response = self.retrieval_service.retrieve(
@@ -77,6 +78,13 @@ class BaseAgent(ABC):
         prompt = self.prompt_builder.build(
             question=question,
             retrieval_response=retrieval_response,
+            conversation_history=conversation_history,
+        )
+        logger.info(
+            "History appended: agent=%s question=%s history_messages=%s",
+            self.name,
+            question,
+            len(conversation_history or []),
         )
         logger.info(
             "Prompt generated: agent=%s question=%s prompt_length=%s",

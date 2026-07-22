@@ -1,419 +1,158 @@
-# Agentic AI Platform
-
-This repository contains the Phase 7 question-answering foundation for an enterprise-style Agentic AI Platform built with FastAPI.
-
-## Project Structure
-
-```text
-agentic-ai-platform/
-├── app/
-│   ├── api/
-│   │   ├── health.py
-│   │   ├── upload.py
-│   │   ├── process.py
-│   │   ├── chunk.py
-│   │   ├── embed.py
-│   │   ├── retrieve.py
-│   │   └── ask.py
-│   ├── core/
-│   │   ├── config.py
-│   │   └── logging.py
-│   ├── services/
-│   │   ├── document_service.py
-│   │   ├── pdf_processor.py
-│   │   ├── chunk_service.py
-│   │   ├── embedding_service.py
-│   │   ├── retrieval_service.py
-│   │   ├── llm_service.py
-│   │   └── prompt_builder.py
-│   ├── agents/
-│   ├── rag/
-│   ├── models/
-│   ├── schemas/
-│   │   ├── upload_response.py
-│   │   ├── process_response.py
-│   │   ├── chunk_response.py
-│   │   ├── embedding_response.py
-│   │   ├── retrieval_response.py
-│   │   ├── ask_request.py
-│   │   └── ask_response.py
-│   ├── utils/
-│   └── main.py
-├── uploads/
-├── processed/
-├── chunks/
-├── vector_store/
-├── tests/
-├── logs/
-├── .env
-├── .env.example
-├── .gitignore
-├── requirements.txt
-└── README.md
-```
-
-## Features
-
-- FastAPI application configuration
-- `GET /health` endpoint
-- `POST /upload` endpoint for PDF files only
-- `POST /process/{document_id}` endpoint for local PDF text extraction
-- `POST /chunk/{document_id}` endpoint for local chunk generation
-- `POST /embed/{document_id}` endpoint for local embedding generation with FAISS
-- `POST /retrieve` endpoint for local FAISS-based document chunk retrieval
-- `POST /ask` endpoint for question answering using the retrieval pipeline and a mock LLM abstraction
-- `POST /agent-chat` endpoint for confidence-routed agent orchestration over the shared RAG pipeline
-- Optional multi-agent collaboration for requests that match more than one specialist agent
-- Configurable Top-K retrieval requests
-- APIRouter-based API structure
-- Local vector-storage persistence in the `vector_store/` directory
-- Reusable embedding service using `SentenceTransformer("all-MiniLM-L6-v2")`
-- Reusable retrieval service using the same local `SentenceTransformer("all-MiniLM-L6-v2")`
-- Reusable prompt builder and mock LLM abstraction for deterministic, context-grounded answers
-- Modular HR, IT, and Finance agents that reuse `RetrievalService`, `PromptBuilder`, and `LLMService`
-- `AgentOrchestrator` service for deterministic agent registration, confidence routing, and default fallback behavior
-- `CollaborationService` for merging multi-agent responses and deduplicating source chunks
-- Local FAISS index saved at `vector_store/index.faiss`
-- Chunk metadata saved at `vector_store/metadata.json`
-- Logging and `HTTPException` handling for retrieval and ask failures
-
-## Run Locally
-
-1. Create and activate a virtual environment:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-2. Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-3. Copy environment variables:
-
-```bash
-cp .env.example .env
-```
-
-4. Start the application:
+# Enterprise Agentic AI Platform
 
-```bash
-uvicorn app.main:app --reload
-```
+## Project Overview
 
-5. Open the API docs:
+The Enterprise Agentic AI Platform is a Retrieval-Augmented Generation (RAG) application that allows users to upload PDF documents and ask natural language questions. The platform retrieves relevant information from uploaded documents and generates context-aware responses using a Large Language Model (LLM). It follows a modular architecture that can be easily extended for enterprise use cases.
 
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
+---
 
-## Health Check
+# Project Modules
 
-```bash
-curl http://127.0.0.1:8000/health
-```
+## 1. FastAPI
 
-## Document Upload
+FastAPI is the backend framework used to build REST APIs for the project. It manages request handling, validation, routing, and API documentation through Swagger UI.
 
-Use the Swagger UI or send a `multipart/form-data` request with a PDF file:
+---
 
-```bash
-curl -X POST "http://127.0.0.1:8000/upload" \
-  -F "file=@sample.pdf"
-```
+## 2. Upload Service
 
-## Document Processing
+The Upload Service allows users to upload PDF documents into the application. It validates the uploaded files, generates a unique document ID, and stores them for further processing.
 
-Once a PDF has been uploaded and the `document_id` is known, process it locally:
+---
 
-```bash
-curl -X POST "http://127.0.0.1:8000/process/<document_id>"
-```
+## 3. PDF Processor
 
-## Document Chunking
+The PDF Processor extracts text content from uploaded PDF documents using PyMuPDF. The extracted text becomes the input for the RAG pipeline.
 
-After the document has been processed, generate chunks:
+---
 
-```bash
-curl -X POST "http://127.0.0.1:8000/chunk/<document_id>"
-```
+## 4. Text Chunking
 
-## Document Embedding
+The Chunking module divides large documents into smaller overlapping text chunks. This improves retrieval accuracy by allowing semantic search on manageable pieces of text.
 
-After the document has been chunked, generate embeddings and save the local FAISS index:
+---
 
-```bash
-curl -X POST "http://127.0.0.1:8000/embed/<document_id>"
-```
+## 5. Embedding Service
 
-The embedding response includes:
+The Embedding Service converts each text chunk into a numerical vector using the SentenceTransformer model. These embeddings capture the semantic meaning of the document.
 
-- `document_id`
-- `chunks_embedded`
-- `embedding_model`
-- `vector_store`
-- `status`
+---
 
-## Retrieval
+## 6. Vector Store (FAISS)
 
-Use the retrieve endpoint to search the local FAISS vector store for the most relevant chunks:
+FAISS stores the generated embeddings and performs efficient similarity searches. It retrieves the most relevant document chunks for a user's question.
 
-```bash
-curl -X POST "http://127.0.0.1:8000/retrieve" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What is the leave policy?",
-    "top_k": 5
-  }'
-```
+---
 
-The response includes:
+## 7. Retrieval Service
 
-- `question`
-- `results[]` with `chunk_id`, `document_id`, `chunk_number`, `similarity_score`, and `chunk_text`
+The Retrieval Service converts the user's question into an embedding and searches the FAISS index. It returns the top matching document chunks as contextual information.
 
-## Ask
+---
 
-Use the ask endpoint to run a full retrieval-to-answer flow using the local mock LLM abstraction:
+## 8. Prompt Builder
 
-```bash
-curl -X POST "http://127.0.0.1:8000/ask" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What is the leave policy?",
-    "top_k": 5
-  }'
-```
+The Prompt Builder combines the retrieved document context with the user's question. It creates a structured prompt that is sent to the language model for answer generation.
 
-The response includes:
+---
 
-- `question`
-- `answer`
-- `sources[]` with `document_id`, `chunk_number`, and `similarity_score`
+## 9. LLM Service
 
-## Phase 10 Intelligent Intent Classification
+The LLM Service acts as an abstraction layer between the application and the language model. It supports both Mock LLM for local testing and Amazon Bedrock for production deployment.
 
-Phase 10 upgrades local agent orchestration from keyword-first routing to confidence-based intent classification. It does not change the completed upload, processing, chunking, embedding, retrieval, ask, Bedrock-ready LLM, or agent execution phases.
+---
 
-The agent architecture is intentionally simple and production-friendly:
+## 10. Mock LLM
 
-- `app/agents/base_agent.py` defines `BaseAgent`, `AgentClassification`, the shared execution contract, and the common RAG flow.
-- `app/agents/hr_agent.py` classifies HR topics such as leave, attendance, holidays, salary, benefits, employee policy, and recruitment.
-- `app/agents/it_agent.py` classifies IT topics such as passwords, VPN, login, email, software, network, laptop, and systems.
-- `app/agents/finance_agent.py` classifies finance topics such as invoices, expenses, payments, tax, budget, purchases, reimbursement, and finance.
-- `app/agents/default_agent.py` handles requests when no specialist reaches the confidence threshold.
-- `app/services/orchestrator.py` registers specialist agents, asks every agent to classify the question, sorts by confidence, and chooses the highest-confidence route.
-- `app/api/agent_chat.py` exposes the `POST /agent-chat` API.
+The Mock LLM simulates AI responses during local development when Amazon Bedrock is unavailable. This enables testing without requiring cloud resources.
 
-Each agent reuses the existing services:
+---
 
-- `RetrievalService` for FAISS-backed chunk retrieval
-- `PromptBuilder` for context-grounded prompt creation
-- `LLMService` for mock or Bedrock-backed answer generation
+## 11. Amazon Bedrock
 
-No retrieval, prompt, or LLM logic is duplicated inside individual agents.
+Amazon Bedrock is the cloud-based LLM service used in production. It receives the generated prompt and returns AI-generated responses using foundation models.
 
-### Classification Flow
+---
 
-The orchestrator follows this flow for every `POST /agent-chat` request:
+## 12. Agent Orchestrator
 
-1. Receive the question.
-2. Ask every specialist agent to run `classify(question)`.
-3. Collect `can_handle`, `confidence`, and `reason` from each agent.
-4. Log each agent confidence.
-5. Sort classifications by confidence in descending order.
-6. Select the highest-confidence specialist when confidence is `0.50` or higher.
-7. Use `DefaultAgent` when the highest specialist confidence is below `0.50`.
-8. Execute the selected agent through the shared RAG pipeline.
+The Agent Orchestrator is responsible for routing user questions to the most suitable AI agent. It analyzes the query and coordinates the overall response generation process.
 
-### Agent Registration
+---
 
-Agents are registered in `AgentOrchestrator._register_agents()` in deterministic order:
+## 13. HR Agent
 
-1. `HRAgent`
-2. `ITAgent`
-3. `FinanceAgent`
+The HR Agent specializes in answering Human Resources related questions. It retrieves HR-specific information from uploaded documents before generating responses.
 
-The highest-confidence agent handles the request. `DefaultAgent` is created separately as the fallback and is used only when no specialist meets the confidence threshold.
+---
 
-### Agent Chat
+## 14. IT Agent
 
-Use the agent chat endpoint to run a routed agent flow:
+The IT Agent handles technical support related questions such as VPN, passwords, software, and system access. It follows the same retrieval and response workflow.
 
-```bash
-curl -X POST "http://127.0.0.1:8000/agent-chat" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "How many annual leave days are available?"
-  }'
-```
+---
 
-The response includes:
+## 15. Finance Agent
 
-- `selected_agents`
-- `question`
-- `answer`
-- `sources[]` with `document_id`, `chunk_number`, and `similarity_score`
+The Finance Agent processes finance-related questions including invoices, reimbursements, expenses, and payments. It provides responses based on retrieved document content.
 
-Example response:
+---
 
-```json
-{
-  "selected_agents": [
-    "HRAgent"
-  ],
-  "question": "How many annual leave days are available?",
-  "answer": "Based on the uploaded documents:\n\nEmployees receive 18 annual leave days...",
-  "sources": [
-    {
-      "document_id": "example-document-id",
-      "chunk_number": 5,
-      "similarity_score": 0.54
-    }
-  ]
-}
-```
+## 16. Multi-Agent Collaboration
 
-### Adding a New Agent
+For complex questions covering multiple domains, the orchestrator can invoke multiple agents. Their responses are merged to generate a single comprehensive answer.
 
-To add a new enterprise agent:
+---
 
-1. Create a new file in `app/agents/`.
-2. Subclass `BaseAgent`.
-3. Implement `classify(question: str) -> AgentClassification`.
-4. Register the agent in `AgentOrchestrator._register_agents()`.
+## 17. Configuration Management
 
-The new agent should continue to use the inherited `handle(question)` method unless it has a strong product reason to customize behavior.
+Configuration values such as model selection, API settings, and environment variables are managed through a centralized configuration module. This makes the application easy to configure across different environments.
 
-## Phase 11 Multi-Agent Collaboration
+---
 
-Phase 11 allows the orchestrator to execute multiple specialist agents for a single request when more than one agent has enough classification confidence.
+## 18. Logging
 
-### Multi-Agent Workflow
+The Logging module records application events, API requests, retrieval operations, and system errors. These logs simplify debugging and monitoring during development.
 
-When `MULTI_AGENT_ENABLED=true`, the orchestrator follows this flow:
+---
 
-1. Receive the question.
-2. Ask every specialist agent to run `classify(question)`.
-3. Sort agents by confidence in descending order.
-4. Select every specialist agent whose confidence is greater than or equal to `MULTI_AGENT_THRESHOLD`.
-5. If no specialist reaches the threshold, use `DefaultAgent`.
-6. Execute each selected agent with the shared `RetrievalService`, `PromptBuilder`, and `LLMService`.
-7. Continue with remaining agents if one selected agent fails.
-8. Merge successful agent responses through `CollaborationService`.
-9. Return the merged answer and deduplicated sources.
+## 19. API Endpoints
 
-When `MULTI_AGENT_ENABLED=false`, the orchestrator keeps the Phase 10 single-agent behavior and returns one selected agent in the `selected_agents` list.
+### **POST /upload**
 
-### Collaboration Strategy
+Uploads a PDF document into the system for processing.
 
-`CollaborationService` merges responses with a deterministic strategy:
+### **POST /embed**
 
-- Preserves selected agent response order.
-- Adds a Markdown section heading for each agent, such as `## HRAgent`.
-- Removes duplicate source chunks using `document_id` and `chunk_number`.
-- Keeps source order based on the first agent response where each source appears.
+Generates embeddings and updates the FAISS vector index.
 
-### Configuration
+### **POST /retrieve**
 
-Add these values to `.env`:
+Retrieves the most relevant document chunks based on semantic similarity.
 
-```env
-MULTI_AGENT_ENABLED=true
-MULTI_AGENT_THRESHOLD=0.70
-```
+### **POST /ask**
 
-The threshold can be tuned per environment:
+Performs the standard RAG workflow to generate an answer from retrieved document context.
 
-- Use a higher threshold for stricter specialist routing.
-- Use a lower threshold for broader collaboration.
-- Disable multi-agent mode when only the single highest-confidence agent should answer.
+### **POST /agent-chat**
 
-### Multi-Agent Chat Example
+Routes the question through the Agent Orchestrator and generates an intelligent response using specialized agents.
 
-```bash
-curl -X POST "http://127.0.0.1:8000/agent-chat" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What is the leave policy and how do I request a laptop?"
-  }'
-```
+---
 
-Example response:
+# Overall Workflow
 
-```json
-{
-  "selected_agents": [
-    "HRAgent",
-    "ITAgent"
-  ],
-  "question": "What is the leave policy and how do I request a laptop?",
-  "answer": "## HRAgent\n\nBased on the uploaded documents:\n\nEmployees receive 18 annual leave days.\n\n## ITAgent\n\nBased on the uploaded documents:\n\nLaptop requests must be submitted through the IT portal.",
-  "sources": []
-}
-```
+1. Upload a PDF document.
+2. Extract text from the document.
+3. Split the text into smaller chunks.
+4. Generate embeddings for each chunk.
+5. Store embeddings in the FAISS vector database.
+6. Receive the user's question.
+7. Route the question to the appropriate AI agent.
+8. Retrieve relevant document chunks.
+9. Build the LLM prompt.
+10. Generate the final answer using the Mock LLM or Amazon Bedrock.
+11. Return the answer along with the relevant document sources.
 
-### Adding New Agents To Collaboration
+---
 
-New agents participate in multi-agent collaboration automatically when they are registered in `AgentOrchestrator._register_agents()` and implement `classify(question)`.
-
-To add a new collaborating agent:
-
-1. Create the new agent in `app/agents/`.
-2. Subclass `BaseAgent`.
-3. Implement `classify(question: str) -> AgentClassification`.
-4. Register the agent in `AgentOrchestrator._register_agents()`.
-5. Tune the agent confidence scores so collaboration occurs only for relevant multi-intent questions.
-
-## Phase 8 Bedrock Integration
-
-The `POST /ask` API remains unchanged. The only change in this phase is the LLM implementation selected from configuration:
-
-- `USE_MOCK_LLM=true` → uses the existing mock implementation
-- `USE_MOCK_LLM=false` → uses `BedrockLLMService` through `boto3`
-
-### Required IAM permissions
-
-The AWS identity used by the application must be allowed to call Bedrock Runtime:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "bedrock:InvokeModel"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-### AWS CLI configuration
-
-Configure AWS credentials and default region locally:
-
-```bash
-aws configure
-aws sts get-caller-identity
-```
-
-### Required environment variables
-
-Add the following to `.env`:
-
-```env
-USE_MOCK_LLM=false
-AWS_REGION=us-east-1
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
-```
-
-### Notes
-
-- No hardcoded AWS credentials are used.
-- The app keeps the same `/ask` contract and only swaps the LLM backend at runtime.
-- Bedrock is used only for model inference; no Lambda, orchestrator, or multiple-agent behavior is introduced.

@@ -25,6 +25,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application startup initiated.")
+    for route in app.routes:
+        methods = ",".join(sorted(route.methods)) if hasattr(route, "methods") else ""
+        logger.info("Registered route: path=%s methods=%s", route.path, methods)
     yield
     logger.info("Application shutdown complete.")
 
